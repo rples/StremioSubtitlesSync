@@ -1,0 +1,21 @@
+# Dependencies and build output
+node_modules/
+dist/
+service/bin/
+
+# Secrets: only the example file is shared
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and diagnostic dumps
+*.log
+logs/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
