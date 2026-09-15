@@ -68,8 +68,10 @@ if (-not $existing) {
 } else {
   Step "Updating the existing service"
   $binPath = "`"$Exe`" --node `"$Node`" --dir `"$Root`""
-  # PathName is read-only as a property; the Change method is how it is updated.
-  $changed = Invoke-CimMethod -ClassName Win32_Service -Filter "Name = '$Name'" -MethodName Change -Arguments @{ PathName = $binPath }
+  # PathName is read-only as a property; the Change method of the service
+  # instance is how it is updated.
+  $changed = Get-CimInstance -ClassName Win32_Service -Filter "Name = '$Name'" |
+    Invoke-CimMethod -MethodName Change -Arguments @{ PathName = $binPath }
   if ($changed.ReturnValue -ne 0) { throw "Updating the service command failed (code $($changed.ReturnValue))" }
 }
 
