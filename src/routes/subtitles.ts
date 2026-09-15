@@ -42,9 +42,10 @@ function clientFor(req: Request): OpenSubtitlesClient {
   });
 }
 
-function send(res: Response, ext: "srt" | "vtt", body: string): void {
+function send(res: Response, ext: "srt" | "vtt", body: string, cacheable = true): void {
   res.setHeader("Content-Type", CONTENT_TYPE[ext]!);
-  res.setHeader("Cache-Control", "public, max-age=21600");
+  // A fallback served because something failed must not outlive the failure.
+  res.setHeader("Cache-Control", cacheable ? "public, max-age=21600" : "no-store");
   res.send(body);
 }
 
@@ -141,7 +142,7 @@ export function subtitleRoutes(): Router {
       const message = error instanceof Error ? error.message : String(error);
       log.warn(`anchor ${anchor.fileId} unavailable (${message}), serving unaligned`);
       res.setHeader("X-Subtitle-Sync", "anchor-unavailable");
-      send(res, ext, render(target, ext));
+      send(res, ext, render(target, ext), false);
     }
   });
 

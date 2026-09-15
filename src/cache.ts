@@ -39,8 +39,16 @@ export class TtlCache<V> {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
-  /** Runs `factory` only on a miss, and shares one in-flight call per key. */
-  async wrap(key: string, factory: () => Promise<V>, ttlMs = this.ttlMs): Promise<V> {
+  /**
+   * Runs `factory` only on a miss, and shares one in-flight call per key.
+   * The lifetime can depend on the value, so a failure can be kept for less
+   * time than a success.
+   */
+  async wrap(
+    key: string,
+    factory: () => Promise<V>,
+    ttlMs: number | ((value: V) => number) = this.ttlMs,
+  ): Promise<V> {
     const hit = this.get(key);
     if (hit !== undefined) return hit;
 
@@ -49,7 +57,7 @@ export class TtlCache<V> {
 
     const task = factory()
       .then((value) => {
-        this.set(key, value, ttlMs);
+        this.set(key, value, typeof ttlMs === "function" ? ttlMs(value) : ttlMs);
         return value;
       })
       .finally(() => {

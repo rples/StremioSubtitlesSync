@@ -69,8 +69,26 @@ function envList(name: string, fallback: string[]): string[] {
   return langList(process.env[name], fallback);
 }
 
+/**
+ * Drops fields the user left empty.
+ *
+ * The SDK's install button sends every field of the form, blank ones as "".
+ * Kept, an empty string would win over the environment below and switch off,
+ * for example, an API key the instance already has.
+ */
+function withoutBlanks(raw: RawUserConfig | undefined): RawUserConfig {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (value === undefined || value === null) continue;
+    const text = String(value);
+    if (text.trim() === "") continue;
+    out[key] = text;
+  }
+  return out as RawUserConfig;
+}
+
 export function resolveConfig(raw: RawUserConfig | undefined): ResolvedConfig {
-  const user = raw ?? {};
+  const user = withoutBlanks(raw);
   const maxPerLang = Number(user.maxPerLang ?? process.env.MAX_PER_LANG ?? 5);
   const format = (user.format ?? process.env.FORMAT ?? "srt").toLowerCase();
 

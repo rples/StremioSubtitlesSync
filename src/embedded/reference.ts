@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { TtlCache } from "../cache";
@@ -44,8 +45,14 @@ const MIN_CUES = 15;
 /** How many tracks to try before giving up on the file. */
 const MAX_TRACK_ATTEMPTS = 3;
 
-/** Probes are cheap but not free, and the answer cannot change for a given file. */
-const probeCache = new TtlCache<EmbeddedTarget | null>(6 * 60 * 60_000, 200);
+/**
+ * How long a found file is kept. The answer cannot change for a given file, but
+ * it carries a download link that lasts about three hours, and TorBox links are
+ * themselves cached for up to an hour. An hour here keeps every link handed out
+ * well inside its life.
+ */
+const PROBE_TTL_MS = 60 * 60_000;
+const probeCache = new TtlCache<EmbeddedTarget | null>(PROBE_TTL_MS, 200);
 /** A reference costs real bandwidth, so it is held for a long time. */
 const referenceCache = new TtlCache<Cue[] | null>(24 * 60 * 60_000, 100);
 /**
@@ -63,8 +70,17 @@ export function streamSourceFor(config: ResolvedConfig): StreamSource | null {
   return null;
 }
 
-function cacheKey(hint: FileHint): string {
-  return hint.videoHash ?? `${hint.videoSize ?? 0}:${hint.filename ?? ""}`;
+/**
+ * One entry per video per account. A probe holds that account's download link,
+ * and whether the file is there at all differs between accounts. Only a hash of
+ * the key goes into the cache key.
+ */
+function cacheKey(hint: FileHint, config: ResolvedConfig): string {
+  const account = createHash("sha256")
+    .update(config.torboxApiKey ?? "")
+    .digest("hex")
+    .slice(0, 16);
+  return `${account}:${hint.videoHash ?? `${hint.videoSize ?? 0}:${hint.filename ?? ""}`}`;
 }
 
 /**
@@ -114,7 +130,7 @@ export async function probeEmbedded(
   const source = streamSourceFor(config);
   if (!source) return null;
 
-  return probeCache.wrap(`probe:${cacheKey(hint)}`, async () => {
+  return probeCache.wrap(`probe:${cacheKey(hint, config)}`, async () => {
     let candidates: ResolvedFile[];
     try {
       candidates = await source.resolve(hint);
@@ -157,7 +173,9 @@ export async function probeEmbedded(
     }
 
     return null;
-  });
+    // A miss is often temporary (a failed lookup, a slow CDN), so it is not
+    // kept for as long as a find.
+  }, (target) => (target ? PROBE_TTL_MS : FAILURE_TTL_MS));
 }
 
 /**
@@ -168,7 +186,7 @@ export async function embeddedReference(
   hint: FileHint,
   config: ResolvedConfig,
 ): Promise<Cue[] | null> {
-  const key = `ref:${cacheKey(hint)}`;
+  const key = `ref:${cacheKey(hint, config)}`;
   const cached = referenceCache.get(key);
   if (cached !== undefined) return cached;
 

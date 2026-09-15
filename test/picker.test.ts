@@ -145,3 +145,32 @@ test("user settings override the environment, which fills the rest", () => {
   delete process.env.LANGUAGES;
   delete process.env.OS_API_KEY;
 });
+
+test("blank fields from the install form leave the environment values in place", () => {
+  process.env.OS_API_KEY = "from-env";
+  process.env.TORBOX_API_KEY = "torbox-from-env";
+  process.env.MAX_PER_LANG = "7";
+  try {
+    // What the SDK's install button sends for fields left empty.
+    const config = resolveConfig({
+      osApiKey: "",
+      osUsername: "",
+      osPassword: "",
+      torboxApiKey: " ",
+      maxPerLang: "",
+      labels: "",
+      languages: "pl",
+    });
+    assert.equal(config.osApiKey, "from-env");
+    assert.equal(config.osUsername, undefined);
+    assert.equal(config.torboxApiKey, "torbox-from-env");
+    assert.equal(config.maxPerLang, 7);
+    assert.equal(config.verboseLabels, false);
+    // A field that was filled in still wins.
+    assert.deepEqual(config.languages, ["pl"]);
+  } finally {
+    delete process.env.OS_API_KEY;
+    delete process.env.TORBOX_API_KEY;
+    delete process.env.MAX_PER_LANG;
+  }
+});

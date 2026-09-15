@@ -272,6 +272,8 @@ test("an unknown anchor still delivers the subtitle, just unaligned", async () =
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("x-subtitle-sync"), "anchor-unavailable");
+  // Served only because the anchor failed, so it must not be cached as the synced file.
+  assert.equal(response.headers.get("cache-control"), "no-store");
   const cues = parseSubtitle(await response.text());
   assert.equal(cues[0]!.start, SHIFTED[0]!.start);
 });

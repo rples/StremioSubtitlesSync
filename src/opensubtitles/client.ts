@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TtlCache } from "../cache";
 import { log } from "../log";
 import {
@@ -34,6 +35,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function num(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Where a login is remembered.
+ *
+ * The password is part of it, so a cached token is only reused by someone who
+ * gave the same password, and a wrong password cannot mark the right one as
+ * failed. Only a hash goes into the key, never the password itself.
+ */
+export function tokenCacheKey(apiKey: string, username: string, password: string): string {
+  const digest = createHash("sha256").update(`${apiKey}\0${username}\0${password}`).digest("hex");
+  return `${username}:${digest}`;
 }
 
 export interface ClientOptions {
@@ -94,7 +107,7 @@ export class OpenSubtitlesClient {
     const { username, password } = this.options;
     if (!username || !password) return undefined;
 
-    const key = `${this.options.apiKey}:${username}`;
+    const key = tokenCacheKey(this.options.apiKey, username, password);
     const cached = tokenCache.get(key);
     if (cached !== undefined) return cached === LOGIN_FAILED ? undefined : cached;
 

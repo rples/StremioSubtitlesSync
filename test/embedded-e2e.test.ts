@@ -132,6 +132,11 @@ describe("reading a timing reference out of the video", { skip: !hasFfmpeg() }, 
       res.setHeader("Content-Type", "application/json");
 
       if (url.pathname === "/torrents/mylist") {
+        // A second account that holds nothing, to prove accounts do not share results.
+        if (req.headers.authorization === "Bearer empty-account") {
+          res.end(JSON.stringify({ data: [] }));
+          return;
+        }
         res.end(
           JSON.stringify({
             data: [
@@ -197,6 +202,25 @@ describe("reading a timing reference out of the video", { skip: !hasFfmpeg() }, 
       reference.map((c) => c.start),
       CUES.map((c) => c.start),
     );
+  });
+
+  test("an account without the file does not get another account's result", async () => {
+    const { hashRemoteFile } = await import("../src/embedded/oshash.js");
+    const { resolveConfig } = await import("../src/config.js");
+    const { probeEmbedded } = await import("../src/embedded/reference.js");
+
+    const url = `http://127.0.0.1:${mediaPort}/film.mkv`;
+    const hint = {
+      videoHash: (await hashRemoteFile(url, fileSize)) ?? undefined,
+      videoSize: fileSize,
+      filename: "Some.Film.2024.1080p.mkv",
+    };
+    const config = resolveConfig(undefined);
+
+    // Found and cached for the account that holds the file...
+    assert.ok(await probeEmbedded(hint, config));
+    // ...which must not be handed to an account that does not.
+    assert.equal(await probeEmbedded(hint, { ...config, torboxApiKey: "empty-account" }), null);
   });
 
   test("packets found past the end of a window are not kept", async () => {
