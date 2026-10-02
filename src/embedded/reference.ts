@@ -62,6 +62,8 @@ const referenceCache = new TtlCache<Cue[] | null>(24 * 60 * 60_000, 100);
  * them should keep a file out for a day.
  */
 const FAILURE_TTL_MS = 30 * 60_000;
+/** A file not in the account yet is usually there a minute later. */
+const NOT_IN_ACCOUNT_TTL_MS = 2 * 60_000;
 /** One read per video at a time. A second request for it waits for the first. */
 const referenceInFlight = new Map<string, Promise<Cue[] | null>>();
 
@@ -130,6 +132,7 @@ export async function probeEmbedded(
   const source = streamSourceFor(config);
   if (!source) return null;
 
+  let notInAccount = false;
   return probeCache.wrap(`probe:${cacheKey(hint, config)}`, async () => {
     let candidates: ResolvedFile[];
     try {
@@ -138,6 +141,7 @@ export async function probeEmbedded(
       log.warn(`${source.name} lookup failed: ${describe(error)}`);
       return null;
     }
+    notInAccount = candidates.length === 0;
 
     for (const file of candidates) {
       // Confirm it is byte for byte the file Stremio is playing before trusting
@@ -174,8 +178,9 @@ export async function probeEmbedded(
 
     return null;
     // A miss is often temporary (a failed lookup, a slow CDN), so it is not
-    // kept for as long as a find.
-  }, (target) => (target ? PROBE_TTL_MS : FAILURE_TTL_MS));
+    // kept for as long as a find. A file missing from the account is the most
+    // temporary of all: the debrid service may still be adding it.
+  }, (target) => (target ? PROBE_TTL_MS : notInAccount ? NOT_IN_ACCOUNT_TTL_MS : FAILURE_TTL_MS));
 }
 
 /**

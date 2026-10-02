@@ -39,6 +39,10 @@ export class TtlCache<V> {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
+  delete(key: string): void {
+    this.store.delete(key);
+  }
+
   /**
    * Runs `factory` only on a miss, and shares one in-flight call per key.
    * The lifetime can depend on the value, so a failure can be kept for less

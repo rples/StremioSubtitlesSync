@@ -61,8 +61,10 @@ export class TorBoxSource implements StreamSource {
   }
 
   /** Everything in the account, flattened to individual files. */
-  private async listFiles(): Promise<CandidateFile[]> {
-    return listCache.wrap(`list:${this.apiKey.slice(-8)}`, async () => {
+  private async listFiles(fresh = false): Promise<CandidateFile[]> {
+    const key = `list:${this.apiKey.slice(-8)}`;
+    if (fresh) listCache.delete(key);
+    return listCache.wrap(key, async () => {
       const all: CandidateFile[] = [];
 
       for (const kind of KINDS) {
@@ -120,8 +122,13 @@ export class TorBoxSource implements StreamSource {
   }
 
   async resolve(hint: FileHint): Promise<ResolvedFile[]> {
-    const files = await this.listFiles();
-    const ranked = rankCandidates(files, hint).slice(0, 3);
+    let ranked = rankCandidates(await this.listFiles(), hint).slice(0, 3);
+    if (ranked.length === 0) {
+      // Stremio asks for subtitles as soon as playback starts, which is often
+      // just after the torrent was added. A listing from before that cannot
+      // hold it, so look once more before giving up.
+      ranked = rankCandidates(await this.listFiles(true), hint).slice(0, 3);
+    }
     if (ranked.length === 0) {
       log.info("TorBox has no file matching this video");
       return [];
