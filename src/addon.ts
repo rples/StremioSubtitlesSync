@@ -5,7 +5,8 @@ import { probeEmbedded } from "./embedded/reference";
 import { iso639_2, languageName } from "./lang";
 import { log } from "./log";
 import { manifest } from "./manifest";
-import { OpenSubtitlesClient } from "./opensubtitles/client";
+import { searchProviders } from "./providers";
+import type { FileRef } from "./urls";
 import { pickAnchor, rankCandidates, type Anchor } from "./picker";
 import { directUrl, embeddedUrl, slugify, syncUrl, type VideoHint } from "./urls";
 
@@ -80,8 +81,8 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
       `install config ${has(args.config && Object.keys(args.config).length > 0)}`,
   );
 
-  if (!config.osApiKey) {
-    log.warn("request ignored: no OpenSubtitles API key in config or environment");
+  if (!config.osApiKey && !config.subdlApiKey) {
+    log.warn("request ignored: no subtitle provider API key configured");
     return { subtitles: [], cacheMaxAge: 60 };
   }
 
@@ -91,16 +92,10 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
   }
 
   const filename = args.extra.filename;
-  const client = new OpenSubtitlesClient({
-    apiKey: config.osApiKey,
-    username: config.osUsername,
-    password: config.osPassword,
-  });
-
   // One search covers everything: the languages the user wants plus the ones
   // allowed to anchor. The hash goes along so OpenSubtitles can flag the
   // subtitles that belong to this exact file.
-  const all = await client.search({
+  const { candidates: all, anchors } = await searchProviders(config, {
     type: video.type,
     imdbId: video.imdbId,
     season: video.type === "episode" ? video.season : undefined,
@@ -113,7 +108,7 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
     return { subtitles: [], cacheMaxAge: 1800 };
   }
 
-  const anchor = pickAnchor(all, config.anchorLanguages, filename);
+  const anchor = pickAnchor(anchors, config.anchorLanguages, filename);
   const hint: VideoHint = {
     videoHash: args.extra.videoHash,
     videoSize: args.extra.videoSize ? Number(args.extra.videoSize) : undefined,
@@ -152,7 +147,7 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
     for (const subtitle of [...exact, ...rest]) {
       if (offered >= config.maxPerLang) break;
 
-      const ref = { fileId: subtitle.fileId, lang: subtitle.language };
+      const ref: FileRef = { fileId: subtitle.fileId, lang: subtitle.language, provider: subtitle.provider };
       const entry = buildEntry(subtitle.moviehashMatch, anchor, embedded, ref, hint, {
         base,
         configToken,
@@ -165,7 +160,7 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
       if (entry.timing === "unsynced" && !config.includeUnsynced) continue;
 
       subtitles.push({
-        id: `${entry.timing}-${subtitle.fileId}`,
+        id: `${entry.timing}-${subtitle.provider ? "subdl-" : ""}${subtitle.fileId}`,
         url: entry.url,
         lang: label(language, entry.timing, config.verboseLabels),
       });
@@ -199,7 +194,7 @@ function buildEntry(
   isExact: boolean,
   anchor: Anchor | null,
   embedded: boolean,
-  ref: { fileId: number; lang: string },
+  ref: FileRef,
   hint: VideoHint,
   url: { base: string; configToken: string; slug: string; ext: string },
 ): { timing: Timing; url: string } {
@@ -212,7 +207,7 @@ function buildEntry(
 
   // Aligning a file to itself would be pointless, and would also spend the
   // anchor's download quota a second time.
-  const usableAnchor = anchor && anchor.subtitle.fileId !== ref.fileId ? anchor : null;
+  const usableAnchor = anchor && (ref.provider === "subdl" || anchor.subtitle.fileId !== ref.fileId) ? anchor : null;
 
   if (usableAnchor?.tier === "hash") {
     const anchorRef = {

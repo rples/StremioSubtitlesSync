@@ -4,7 +4,8 @@ import { Router, type Request, type Response } from "express";
 import { TtlCache } from "../cache";
 import { decodeConfig, resolveConfig } from "../config";
 import { log } from "../log";
-import { OpenSubtitlesClient } from "../opensubtitles/client";
+import { fetchSubtitle, providerCacheScope } from "../providers";
+import { SubdlError } from "../subdl/client";
 import { OpenSubtitlesError } from "../opensubtitles/types";
 import { align, applyAlignment } from "../subtitles/align";
 import { parseSubtitle } from "../subtitles/parse";
@@ -30,18 +31,6 @@ function render(cues: Cue[], ext: "srt" | "vtt"): string {
   return ext === "vtt" ? toVtt(cues) : toSrt(cues);
 }
 
-function clientFor(req: Request): OpenSubtitlesClient {
-  const config = resolveConfig(decodeConfig(req.params["cfg"]));
-  if (!config.osApiKey) {
-    throw new OpenSubtitlesError("No OpenSubtitles API key for this request", 400);
-  }
-  return new OpenSubtitlesClient({
-    apiKey: config.osApiKey,
-    username: config.osUsername,
-    password: config.osPassword,
-  });
-}
-
 function send(res: Response, ext: "srt" | "vtt", body: string, cacheable = true): void {
   res.setHeader("Content-Type", CONTENT_TYPE[ext]!);
   // A fallback served because something failed must not outlive the failure.
@@ -51,7 +40,7 @@ function send(res: Response, ext: "srt" | "vtt", body: string, cacheable = true)
 
 function fail(res: Response, error: unknown, what: string): void {
   const status =
-    error instanceof OpenSubtitlesError
+    error instanceof OpenSubtitlesError || error instanceof SubdlError
       ? (error.status ?? 502)
       : error instanceof RateLimitedError
         ? 503
@@ -60,13 +49,16 @@ function fail(res: Response, error: unknown, what: string): void {
   log.error(`${what} failed: ${message}`);
   // The video host was only busy. Nothing is cached, so a retry can succeed.
   if (error instanceof RateLimitedError) res.setHeader("Retry-After", "60");
+  if ((error instanceof SubdlError || error instanceof OpenSubtitlesError) && error.retryAfterSeconds) {
+    res.setHeader("Retry-After", String(error.retryAfterSeconds));
+  }
   res.status(status >= 400 && status < 600 ? status : 502).type("text/plain").send(message);
 }
 
 export function subtitleRoutes(): Router {
   const router = Router();
 
-  /** Serve one OpenSubtitles file unchanged, other than a clean UTF-8 re-encode. */
+  /** Serve one provider file unchanged, other than a clean UTF-8 re-encode. */
   router.get("/:cfg/s/:file/:name", async (req, res) => {
     const ext = extensionOf(req.params["name"]);
     const file = decodeRef(req.params["file"]);
@@ -76,7 +68,7 @@ export function subtitleRoutes(): Router {
     }
 
     try {
-      const cues = parseSubtitle(await clientFor(req).fetchFile(file.fileId, file.lang));
+      const cues = await fetchCues(req, file);
       send(res, ext, render(cues, ext));
     } catch (error) {
       fail(res, error, `serving file ${file.fileId}`);
@@ -99,7 +91,8 @@ export function subtitleRoutes(): Router {
       return;
     }
 
-    const cacheKey = `${anchor.fileId}->${file.fileId}.${ext}`;
+    const config = resolveConfig(decodeConfig(req.params["cfg"]));
+    const cacheKey = `${providerCacheScope(config)}:${anchor.provider ?? "os"}:${anchor.fileId}.${anchor.lang}->${file.provider ?? "os"}:${file.fileId}.${file.lang}.${ext}`;
     const cached = outputCache.get(cacheKey);
     if (cached !== undefined) {
       res.setHeader("X-Subtitle-Sync", "cached");
@@ -228,7 +221,7 @@ function dumpTarget(hint: { videoHash?: string | undefined }, cues: Cue[]): void
 }
 
 async function fetchCues(req: Request, ref: FileRef): Promise<Cue[]> {
-  const text = await clientFor(req).fetchFile(ref.fileId, ref.lang);
+  const text = await fetchSubtitle(resolveConfig(decodeConfig(req.params["cfg"])), ref);
   const cues = parseSubtitle(text);
   if (cues.length === 0) {
     throw new OpenSubtitlesError(`File ${ref.fileId} parsed to zero cues`);

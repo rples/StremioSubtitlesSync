@@ -3,7 +3,8 @@
 **Subtitles that match your exact video file, synced automatically.**
 
 A self-hosted [Stremio](https://www.stremio.com) addon. It finds subtitles on
-[OpenSubtitles](https://www.opensubtitles.com), works out how they have to be
+[OpenSubtitles](https://www.opensubtitles.com) and optionally
+[SubDL](https://subdl.com), works out how they have to be
 shifted to match the file you are playing, and hands Stremio subtitles that are
 already in sync. No more pressing the subtitle delay button every few minutes.
 
@@ -87,7 +88,7 @@ The details are in [How it works in depth](#how-it-works-in-depth).
 | What | Why |
 |---|---|
 | [Node.js](https://nodejs.org) 22 or newer | Runs the addon. Tested on Node.js 24. |
-| An [OpenSubtitles API key](https://www.opensubtitles.com/consumers) | Search and download subtitles. Free. |
+| An [OpenSubtitles API key](https://www.opensubtitles.com/consumers) and/or [SubDL API key](https://subdl.com/developers) | Search and download subtitles, within the provider account limits. |
 | An OpenSubtitles account (optional, recommended) | A bigger daily download quota than anonymous use. |
 | A [TorBox](https://torbox.app) account and API key (optional) | Reference B: sync files that OpenSubtitles does not know. |
 | [ffprobe](https://ffmpeg.org) on the PATH (optional) | Reference B: list the video's subtitle tracks. Part of FFmpeg. |
@@ -102,7 +103,7 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and set at least `OS_API_KEY`. Set `OS_USERNAME` and `OS_PASSWORD`
+Open `.env` and set `OS_API_KEY` and/or `SUBDL_API_KEY`. Set `OS_USERNAME` and `OS_PASSWORD`
 for a bigger download quota, `LANGUAGES` for the languages you want, and
 `TORBOX_API_KEY` if you use TorBox. Then start it:
 
@@ -172,6 +173,9 @@ serves all devices correctly.
 
 ## Configuration
 
+SubDL can supply additional subtitle candidates without changing the timing
+reference rules. See [SubDL setup and limits (English / Nederlands)](docs/SUBDL.md).
+
 Settings come from two places:
 
 - **`.env`**, for your own private instance. This is the recommended place.
@@ -182,7 +186,8 @@ Changes to `.env` need a restart of the addon.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `OS_API_KEY` | | **Required.** OpenSubtitles API key. |
+| `OS_API_KEY` | | OpenSubtitles API key. Required unless SubDL is configured. |
+| `SUBDL_API_KEY` | | Optional SubDL API key, **`.env` only**. See [SubDL setup and limits](docs/SUBDL.md). |
 | `OS_USERNAME` | | OpenSubtitles username. Downloads then count against your account's quota. |
 | `OS_PASSWORD` | | OpenSubtitles password. Quote it if it holds `#` or a space, see [Troubleshooting](#troubleshooting). |
 | `LANGUAGES` | `en` | Languages to offer, comma separated, OpenSubtitles codes, for example `pl,en`. |
@@ -289,7 +294,7 @@ header with the offset, frame rate ratio and match strength.
   `<config>`, and TorBox download links are cut before their token.
 - **The Windows service runs with minimal rights**, as its own virtual account
   that can only read the project and write its logs.
-- **What leaves your network:** searches and downloads to OpenSubtitles, and,
+- **What leaves your network:** searches and downloads to OpenSubtitles and/or SubDL, and,
   with a TorBox key, account listings and small range reads of your own files
   to TorBox.
 
@@ -499,7 +504,7 @@ reads those files.
 ## Disclaimer
 
 This is an independent project. It is not affiliated with, endorsed by, or
-connected to Stremio, OpenSubtitles or TorBox. You are responsible for following
+connected to Stremio, OpenSubtitles, SubDL or TorBox. You are responsible for following
 the terms of the services you use it with.
 
 ## Acknowledgements

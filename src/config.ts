@@ -22,6 +22,8 @@ export interface RawUserConfig {
 }
 
 export interface ResolvedConfig {
+  /** Server-side only: never part of the per-install URL. */
+  subdlApiKey?: string;
   osApiKey: string;
   osUsername: string | undefined;
   osPassword: string | undefined;
@@ -93,6 +95,7 @@ export function resolveConfig(raw: RawUserConfig | undefined): ResolvedConfig {
   const format = (user.format ?? process.env.FORMAT ?? "srt").toLowerCase();
 
   return {
+    subdlApiKey: process.env.SUBDL_API_KEY?.trim() || undefined,
     osApiKey: (user.osApiKey ?? process.env.OS_API_KEY ?? "").trim(),
     osUsername: (user.osUsername ?? process.env.OS_USERNAME ?? "").trim() || undefined,
     osPassword: (user.osPassword ?? process.env.OS_PASSWORD ?? "") || undefined,

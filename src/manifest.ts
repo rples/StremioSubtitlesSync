@@ -12,7 +12,7 @@ export const manifest: Manifest = {
   version: "1.0.0",
   name: "Subtitle Sync",
   description:
-    "Subtitles from OpenSubtitles, timed to your exact file. " +
+    "Subtitles from OpenSubtitles and optional SubDL, timed to your exact file. " +
     "A subtitle matched to the video by file hash is used as the timing anchor, " +
     "and every other subtitle is aligned to it before it reaches the player.",
   logo: "https://dl.strem.io/addon-logo.png",
@@ -22,16 +22,16 @@ export const manifest: Manifest = {
   idPrefixes: ["tt"],
   behaviorHints: {
     configurable: true,
-    // The addon is useless without an OpenSubtitles API key, so send new users
+    // At least one subtitle provider key is needed, so send new users
     // to /configure instead of letting them install a dead addon.
-    configurationRequired: !process.env.OS_API_KEY,
+    configurationRequired: !process.env.OS_API_KEY && !process.env.SUBDL_API_KEY,
   },
   config: [
     {
       key: "osApiKey",
       type: "text",
       title: "OpenSubtitles API key (from opensubtitles.com/consumers)",
-      required: asRequired(!process.env.OS_API_KEY),
+      required: asRequired(!process.env.OS_API_KEY && !process.env.SUBDL_API_KEY),
     },
     {
       key: "osUsername",

@@ -277,3 +277,146 @@ test("an unknown anchor still delivers the subtitle, just unaligned", async () =
   const cues = parseSubtitle(await response.text());
   assert.equal(cues[0]!.start, SHIFTED[0]!.start);
 });
+
+// The transport intercepts only SubDL; Stremio and OpenSubtitles still use the
+// real HTTP servers above. These fixtures are generated locally, not downloaded.
+async function withSubdl(
+  run: (downloads: () => number) => Promise<void>,
+  failSearch = false,
+): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  const previousKey = process.env.SUBDL_API_KEY;
+  process.env.SUBDL_API_KEY = `fixture-${Math.random()}`;
+  let downloads = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.hostname === "api.subdl.com") {
+      assert.equal(init?.redirect, "error");
+      if (failSearch) return new Response("private provider error", { status: 503 });
+      return Response.json({
+        status: true,
+        results: [{ imdb_id: "tt1234567", type: "movie" }],
+        subtitles: [{ language: "Polish", unpack_files: [{
+          url: "https://dl.subdl.com/subtitle/owned/shifted?api_key=never-retain-this",
+          format: "srt", name: "owned.srt",
+        }] }],
+      });
+    }
+    if (url.hostname === "dl.subdl.com") {
+      downloads++;
+      assert.equal(url.search, "");
+      assert.equal(new Headers(init?.headers).get("X-API-Key"), process.env.SUBDL_API_KEY);
+      return new Response(toSrt(SHIFTED));
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    await run(() => downloads);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.SUBDL_API_KEY;
+    else process.env.SUBDL_API_KEY = previousKey;
+  }
+}
+
+test("SubDL flows through Stremio listing and HTTP alignment without exposing its key", async () => {
+  await withSubdl(async (downloads) => {
+    const subtitles = await requestSubtitles();
+    const entry = subtitles.find((subtitle) => subtitle.id === "synced-subdl-owned~shifted");
+    assert.ok(entry);
+    assert.equal(downloads(), 0, "listing must not spend download quota");
+    assert.ok(entry.url.includes("/x/100.en/subdl~owned~shifted.pl/"));
+    assert.ok(!entry.url.includes(process.env.SUBDL_API_KEY!));
+    assert.ok(!entry.url.includes("never-retain-this"));
+    const response = await fetch(entry.url);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("x-subtitle-sync") ?? "", /offset=-7500ms/);
+    const cues = parseSubtitle(await response.text());
+    assert.equal(cues.length, SHIFTED.length);
+    assert.equal(cues[0]!.text, SHIFTED[0]!.text);
+    for (let i = 0; i < cues.length; i++) {
+      assert.ok(Math.abs(cues[i]!.start - REFERENCE[i]!.start) <= 40);
+    }
+    assert.equal(downloads(), 1);
+    assert.equal((await fetch(entry.url)).status, 200);
+    assert.equal(downloads(), 1);
+  });
+});
+
+test("SubDL failure preserves existing OpenSubtitles results", async () => {
+  await withSubdl(async () => {
+    const subtitles = await requestSubtitles();
+    assert.equal(subtitles.length, 2);
+    assert.equal(subtitles[0]!.id, `exact-${EXACT_FILE_ID}`);
+  }, true);
+});
+
+test("SubDL-only needs a timing reference by default; unsynced opt-in serves the selected file", async () => {
+  const previousOsKey = process.env.OS_API_KEY;
+  const previousUnsynced = process.env.INCLUDE_UNSYNCED;
+  delete process.env.OS_API_KEY;
+  try {
+    await withSubdl(async (downloads) => {
+      assert.deepEqual(await requestSubtitles(), []);
+      process.env.INCLUDE_UNSYNCED = "true";
+      const subtitles = await requestSubtitles();
+      assert.equal(subtitles.length, 1);
+      assert.equal(subtitles[0]!.id, "unsynced-subdl-owned~shifted");
+      const response = await fetch(subtitles[0]!.url);
+      assert.equal(response.status, 200);
+      assert.equal(parseSubtitle(await response.text())[0]!.start, SHIFTED[0]!.start);
+      assert.equal(downloads(), 1);
+    });
+  } finally {
+    if (previousOsKey !== undefined) process.env.OS_API_KEY = previousOsKey;
+    if (previousUnsynced === undefined) delete process.env.INCLUDE_UNSYNCED;
+    else process.env.INCLUDE_UNSYNCED = previousUnsynced;
+  }
+});
+
+test("OpenSubtitles failure preserves SubDL candidates", async () => {
+  const originalFetch = globalThis.fetch;
+  const previousUnsynced = process.env.INCLUDE_UNSYNCED;
+  process.env.INCLUDE_UNSYNCED = "true";
+  globalThis.fetch = async (input, init) => {
+    if (new URL(String(input)).pathname === "/api/v1/subtitles") {
+      return new Response("unavailable", { status: 503 });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    await withSubdl(async () => {
+      // A new hash avoids the successful OpenSubtitles search cached above.
+      const response = await fetch(`http://127.0.0.1:${addonPort}/subtitles/movie/tt1234567/videoHash=1111111111111111.json`);
+      const body = await response.json() as { subtitles: SubtitleEntry[] };
+      assert.equal(body.subtitles.length, 1);
+      assert.equal(body.subtitles[0]!.id, "unsynced-subdl-owned~shifted");
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousUnsynced === undefined) delete process.env.INCLUDE_UNSYNCED;
+    else process.env.INCLUDE_UNSYNCED = previousUnsynced;
+  }
+});
+
+test("SubDL download quota errors reach the player with Retry-After and a safe message", async () => {
+  const originalFetch = globalThis.fetch;
+  const previousKey = process.env.SUBDL_API_KEY;
+  process.env.SUBDL_API_KEY = "quota-route-fixture";
+  globalThis.fetch = async (input, init) => {
+    if (new URL(String(input)).hostname === "dl.subdl.com") {
+      return new Response("private key-bearing response", { status: 429, headers: { "Retry-After": "120" } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const response = await fetch(`http://127.0.0.1:${addonPort}/_/s/subdl~quota~file.pl/test.srt`);
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get("retry-after"), "120");
+    assert.equal(await response.text(), "SubDL returned HTTP 429");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.SUBDL_API_KEY;
+    else process.env.SUBDL_API_KEY = previousKey;
+  }
+});
