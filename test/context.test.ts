@@ -7,6 +7,8 @@ import { baseUrl, runWithRequest } from "../src/context";
 function requestTo(host: string): Request {
   return {
     headers: { host },
+    app: { get: () => () => false },
+    socket: { remoteAddress: "192.0.2.1" },
     protocol: "http",
     get: (name: string) => (name.toLowerCase() === "host" ? host : undefined),
   } as unknown as Request;
@@ -43,5 +45,15 @@ test("a loopback BASE_URL does not send another device back to itself", () => {
 test("a BASE_URL that is not loopback always wins, as behind a proxy", () => {
   withBaseUrl("https://subs.example.com/", () => {
     assert.equal(runWithRequest(requestTo("10.0.0.5:7000"), baseUrl), "https://subs.example.com");
+  });
+});
+
+
+test("untrusted forwarded headers cannot change generated installation URLs", () => {
+  withBaseUrl(undefined, () => {
+    const req = requestTo("actual.example:7000");
+    req.headers["x-forwarded-host"] = "evil.invalid";
+    req.headers["x-forwarded-proto"] = "https";
+    assert.equal(runWithRequest(req, baseUrl), "http://actual.example:7000");
   });
 });

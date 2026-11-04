@@ -17,9 +17,10 @@ interface RequestContext {
 const storage = new AsyncLocalStorage<RequestContext>();
 
 function originOf(request: Request): string {
-  const forwardedProto = String(request.headers["x-forwarded-proto"] ?? "").split(",")[0]?.trim();
-  const forwardedHost = String(request.headers["x-forwarded-host"] ?? "").split(",")[0]?.trim();
-  const protocol = forwardedProto || request.protocol || "http";
+  const trustProxy = request.app.get("trust proxy fn");
+  const trusted = typeof trustProxy === "function" && trustProxy(request.socket.remoteAddress, 0);
+  const forwardedHost = trusted ? String(request.headers["x-forwarded-host"] ?? "").split(",")[0]?.trim() : undefined;
+  const protocol = request.protocol || "http";
   const host = forwardedHost || request.get("host") || `127.0.0.1:${process.env.PORT ?? 7000}`;
   return `${protocol}://${host}`;
 }

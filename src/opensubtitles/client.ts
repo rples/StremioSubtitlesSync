@@ -56,7 +56,10 @@ export interface ClientOptions {
 }
 
 export class OpenSubtitlesClient {
+  private readonly scope: string;
+
   constructor(private readonly options: ClientOptions) {
+    this.scope = createHash("sha256").update(JSON.stringify([options.apiKey, options.username, options.password])).digest("hex");
     if (!options.apiKey) {
       throw new OpenSubtitlesError("No OpenSubtitles API key configured");
     }
@@ -80,7 +83,7 @@ export class OpenSubtitlesClient {
 
     if (response.ok) return response;
 
-    const body = await response.text().catch(() => "");
+    await response.body?.cancel();
     if (response.status === 429) {
       const retryAfter = num(response.headers.get("Retry-After"), 10);
       throw new OpenSubtitlesError("Rate limited by OpenSubtitles", 429, retryAfter);
@@ -89,7 +92,7 @@ export class OpenSubtitlesClient {
       throw new QuotaExceededError("OpenSubtitles download quota is used up for today");
     }
     throw new OpenSubtitlesError(
-      `OpenSubtitles returned ${response.status}: ${body.slice(0, 200)}`,
+      `OpenSubtitles returned HTTP ${response.status}`,
       response.status,
     );
   }
@@ -151,7 +154,7 @@ export class OpenSubtitlesClient {
     params.sort();
 
     const url = `${API}/subtitles?${params.toString()}`;
-    return searchCache.wrap(url, async () => {
+    return searchCache.wrap(`${this.scope}:${url}`, async () => {
       const response = await this.request(url, { method: "GET", headers: this.headers() });
       const body: unknown = await response.json();
       const data = isRecord(body) && Array.isArray(body["data"]) ? body["data"] : [];
@@ -169,7 +172,7 @@ export class OpenSubtitlesClient {
    * first time; later calls for the same file come from cache.
    */
   async fetchFile(fileId: number, language: string): Promise<string> {
-    return fileCache.wrap(`file:${fileId}`, async () => {
+    return fileCache.wrap(`${this.scope}:file:${fileId}:${language}`, async () => {
       const jwt = await this.token();
       const response = await this.request(`${API}/download`, {
         method: "POST",
