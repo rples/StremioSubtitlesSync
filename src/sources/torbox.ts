@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TtlCache } from "../cache";
 import { log } from "../log";
 import { rankCandidates, type CandidateFile } from "./match";
@@ -44,7 +45,11 @@ function num(value: unknown): number {
 export class TorBoxSource implements StreamSource {
   readonly name = "torbox";
 
-  constructor(private readonly apiKey: string) {}
+  private readonly scope: string;
+
+  constructor(private readonly apiKey: string) {
+    this.scope = createHash("sha256").update(apiKey).digest("hex");
+  }
 
   private async getJson(path: string): Promise<unknown> {
     const response = await fetch(`${API}${path}`, {
@@ -62,7 +67,7 @@ export class TorBoxSource implements StreamSource {
 
   /** Everything in the account, flattened to individual files. */
   private async listFiles(fresh = false): Promise<CandidateFile[]> {
-    const key = `list:${this.apiKey.slice(-8)}`;
+    const key = `list:${this.scope}`;
     if (fresh) listCache.delete(key);
     return listCache.wrap(key, async () => {
       const all: CandidateFile[] = [];
@@ -91,7 +96,7 @@ export class TorBoxSource implements StreamSource {
   }
 
   private async downloadLink(file: CandidateFile): Promise<string | null> {
-    const key = `${file.kind}:${file.containerId}:${file.fileId}`;
+    const key = `${this.scope}:${file.kind}:${file.containerId}:${file.fileId}`;
     try {
       return await linkCache.wrap(key, async () => {
         const params = new URLSearchParams({
@@ -101,7 +106,7 @@ export class TorBoxSource implements StreamSource {
         });
         const response = await fetch(`${API}/${file.kind}/requestdl?${params.toString()}`, {
           headers: { Accept: "application/json" },
-          redirect: "follow",
+          redirect: "error",
           signal: AbortSignal.timeout(TIMEOUT_MS),
         });
         if (!response.ok) {

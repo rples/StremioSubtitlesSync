@@ -1,3 +1,4 @@
+import type { SubtitleCandidate } from "./providers/types";
 import type { OsSubtitle } from "./opensubtitles/types";
 
 /**
@@ -63,7 +64,7 @@ export function releaseScore(filename: string, release: string): number {
 }
 
 /** Higher is better. Used to order candidates inside one language. */
-function quality(subtitle: OsSubtitle): number {
+function quality(subtitle: SubtitleCandidate): number {
   let score = Math.log10(subtitle.downloadCount + 1) * 10;
   score += subtitle.ratings;
   if (subtitle.fromTrusted) score += 8;
@@ -72,7 +73,7 @@ function quality(subtitle: OsSubtitle): number {
   return score;
 }
 
-export function rankCandidates(list: OsSubtitle[]): OsSubtitle[] {
+export function rankCandidates<T extends SubtitleCandidate>(list: T[]): T[] {
   return [...list].sort((a, b) => quality(b) - quality(a));
 }
 

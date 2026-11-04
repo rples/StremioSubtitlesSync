@@ -3,7 +3,8 @@
 **Subtitles that match your exact video file, synced automatically.**
 
 A self-hosted [Stremio](https://www.stremio.com) addon. It finds subtitles on
-[OpenSubtitles](https://www.opensubtitles.com), works out how they have to be
+[OpenSubtitles](https://www.opensubtitles.com) and optionally
+[SubDL](https://subdl.com), works out how they have to be
 shifted to match the file you are playing, and hands Stremio subtitles that are
 already in sync. No more pressing the subtitle delay button every few minutes.
 
@@ -87,7 +88,7 @@ The details are in [How it works in depth](#how-it-works-in-depth).
 | What | Why |
 |---|---|
 | [Node.js](https://nodejs.org) 22 or newer | Runs the addon. Tested on Node.js 24. |
-| An [OpenSubtitles API key](https://www.opensubtitles.com/consumers) | Search and download subtitles. Free. |
+| An [OpenSubtitles API key](https://www.opensubtitles.com/consumers) and/or [SubDL API key](https://subdl.com/developers) | Search and download subtitles, within the provider account limits. |
 | An OpenSubtitles account (optional, recommended) | A bigger daily download quota than anonymous use. |
 | A [TorBox](https://torbox.app) account and API key (optional) | Reference B: sync files that OpenSubtitles does not know. |
 | [ffprobe](https://ffmpeg.org) on the PATH (optional) | Reference B: list the video's subtitle tracks. Part of FFmpeg. |
@@ -102,7 +103,7 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and set at least `OS_API_KEY`. Set `OS_USERNAME` and `OS_PASSWORD`
+Open `.env` and set `OS_API_KEY` and/or `SUBDL_API_KEY`. Set `OS_USERNAME` and `OS_PASSWORD`
 for a bigger download quota, `LANGUAGES` for the languages you want, and
 `TORBOX_API_KEY` if you use TorBox. Then start it:
 
@@ -172,17 +173,34 @@ serves all devices correctly.
 
 ## Configuration
 
-Settings come from two places:
+Optional [AI translation setup and limits (English / Nederlands)](docs/TRANSLATION.md)
+adds a labelled fallback when the requested subtitle language is missing. It
+uses a configurable Chat Completions endpoint and the host credential policy;
+AI calls start only when the entry is selected.
 
-- **`.env`**, for your own private instance. This is the recommended place.
-- **The `/configure` page**, whose values are packed into the install URL. They
-  override `.env` for that install.
+SubDL can supply additional subtitle candidates without changing the timing
+reference rules. See [SubDL setup and limits (English / Nederlands)](docs/SUBDL.md).
+
+The administrator selects **server credentials** or **mandatory personal keys**
+with `CREDENTIAL_MODE=server|user`. There is no hybrid or fallback between
+accounts. See [credential setup, Docker settings and migration (English /
+Nederlands)](docs/CREDENTIALS.md). Non-secret language preferences can still be
+set per installation. Personal keys are submitted via `/configure` and stored
+in encrypted server profiles; Stremio receives a revocable profile token.
 
 Changes to `.env` need a restart of the addon.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `OS_API_KEY` | | **Required.** OpenSubtitles API key. |
+| `CREDENTIAL_MODE` | `server` | `server`: only administrator keys; `user`: mandatory personal profiles. See [setup](docs/CREDENTIALS.md). |
+| `PROFILE_DIR` | `data/profiles` | Persistent personal-profile directory. |
+| `PROFILE_ENCRYPTION_KEY_FILE` | | Mounted file containing a stable random 32-byte hex encryption key, required in personal mode (or use `PROFILE_ENCRYPTION_KEY`). |
+| `TRUST_PROXY` | `loopback` | Trusted reverse-proxy addresses/CIDRs only. |
+| `AI_ENABLED` | `false` | Enable optional translation in server mode. Personal mode enables it in the encrypted profile. See [AI setup](docs/TRANSLATION.md). |
+| `AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY` | | Selected server AI endpoint, model and optional key; never per-install URL fields. |
+| `AI_ALLOWED_BASE_URLS` | | Exact endpoint allowlist for personal AI settings. |
+| `OS_API_KEY` | | OpenSubtitles API key. Required unless SubDL is configured. |
+| `SUBDL_API_KEY` | | Optional SubDL API key, **`.env` only**. See [SubDL setup and limits](docs/SUBDL.md). |
 | `OS_USERNAME` | | OpenSubtitles username. Downloads then count against your account's quota. |
 | `OS_PASSWORD` | | OpenSubtitles password. Quote it if it holds `#` or a space, see [Troubleshooting](#troubleshooting). |
 | `LANGUAGES` | `en` | Languages to offer, comma separated, OpenSubtitles codes, for example `pl,en`. |
@@ -278,18 +296,19 @@ header with the offset, frame rate ratio and match strength.
 
 ## Security and privacy
 
-- **Keep keys in `.env`, not on the configure page.** Anything typed into
-  `/configure` becomes part of the install URL, passwords and API keys included.
-  That URL is stored in your Stremio account and appears in logs and
-  screenshots. With keys in `.env`, the install URL holds no secrets.
-- **Anyone who can reach the addon can use your keys.** It has no login. On a
-  home network that is usually fine. Do not expose the port to the internet
-  without putting authentication in front of it.
+- **Keep administrator keys in the runtime environment.** Personal mode stores
+  submitted keys encrypted on the server. Install URLs carry bearer profile
+  tokens, which must also be kept private and can be revoked. Old URLs containing
+  raw keys must be reinstalled; see [migration](docs/CREDENTIALS.md).
+- **Server mode shares the administrator accounts with everyone who can reach
+  it.** Personal mode uses only the account tied to a valid installation token.
+  Restrict access to intended users and protect your proxy configuration.
 - **Logs hide secrets.** The config part of request URLs is written as
   `<config>`, and TorBox download links are cut before their token.
 - **The Windows service runs with minimal rights**, as its own virtual account
   that can only read the project and write its logs.
-- **What leaves your network:** searches and downloads to OpenSubtitles, and,
+- **What leaves your network:** searches and downloads to OpenSubtitles and/or SubDL, and,
+  with AI enabled and selected, subtitle text to the configured AI endpoint;
   with a TorBox key, account listings and small range reads of your own files
   to TorBox.
 
@@ -499,7 +518,7 @@ reads those files.
 ## Disclaimer
 
 This is an independent project. It is not affiliated with, endorsed by, or
-connected to Stremio, OpenSubtitles or TorBox. You are responsible for following
+connected to Stremio, OpenSubtitles, SubDL or TorBox. You are responsible for following
 the terms of the services you use it with.
 
 ## Acknowledgements

@@ -1,3 +1,4 @@
+import { translationUrl } from "./translation/source";
 import { addonBuilder, type Subtitle } from "stremio-addon-sdk";
 import { baseUrl } from "./context";
 import { encodeConfig, resolveConfig, type RawUserConfig, type ResolvedConfig } from "./config";
@@ -5,7 +6,8 @@ import { probeEmbedded } from "./embedded/reference";
 import { iso639_2, languageName } from "./lang";
 import { log } from "./log";
 import { manifest } from "./manifest";
-import { OpenSubtitlesClient } from "./opensubtitles/client";
+import { searchProviders } from "./providers";
+import type { FileRef } from "./urls";
 import { pickAnchor, rankCandidates, type Anchor } from "./picker";
 import { directUrl, embeddedUrl, slugify, syncUrl, type VideoHint } from "./urls";
 
@@ -80,8 +82,8 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
       `install config ${has(args.config && Object.keys(args.config).length > 0)}`,
   );
 
-  if (!config.osApiKey) {
-    log.warn("request ignored: no OpenSubtitles API key in config or environment");
+  if (!config.osApiKey && !config.subdlApiKey) {
+    log.warn("request ignored: no subtitle provider API key configured");
     return { subtitles: [], cacheMaxAge: 60 };
   }
 
@@ -91,29 +93,23 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
   }
 
   const filename = args.extra.filename;
-  const client = new OpenSubtitlesClient({
-    apiKey: config.osApiKey,
-    username: config.osUsername,
-    password: config.osPassword,
-  });
-
   // One search covers everything: the languages the user wants plus the ones
   // allowed to anchor. The hash goes along so OpenSubtitles can flag the
   // subtitles that belong to this exact file.
-  const all = await client.search({
+  const { candidates: all, anchors } = await searchProviders(config, {
     type: video.type,
     imdbId: video.imdbId,
     season: video.type === "episode" ? video.season : undefined,
     episode: video.type === "episode" ? video.episode : undefined,
     moviehash: args.extra.videoHash,
-    languages: [...new Set([...config.languages, ...config.anchorLanguages])],
+    languages: [...new Set([...config.languages, ...config.anchorLanguages, ...(config.translation?.sourceLanguages ?? [])])],
   });
 
   if (all.length === 0) {
     return { subtitles: [], cacheMaxAge: 1800 };
   }
 
-  const anchor = pickAnchor(all, config.anchorLanguages, filename);
+  const anchor = pickAnchor(anchors, config.anchorLanguages, filename);
   const hint: VideoHint = {
     videoHash: args.extra.videoHash,
     videoSize: args.extra.videoSize ? Number(args.extra.videoSize) : undefined,
@@ -142,7 +138,6 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
   const subtitles: Subtitle[] = [];
   for (const language of config.languages) {
     const inLanguage = all.filter((s) => s.language === language);
-    if (inLanguage.length === 0) continue;
 
     // Hash matches need no work, so they go first and take the top slots.
     const exact = rankCandidates(inLanguage.filter((s) => s.moviehashMatch));
@@ -152,7 +147,7 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
     for (const subtitle of [...exact, ...rest]) {
       if (offered >= config.maxPerLang) break;
 
-      const ref = { fileId: subtitle.fileId, lang: subtitle.language };
+      const ref: FileRef = { fileId: subtitle.fileId, lang: subtitle.language, provider: subtitle.provider };
       const entry = buildEntry(subtitle.moviehashMatch, anchor, embedded, ref, hint, {
         base,
         configToken,
@@ -165,11 +160,37 @@ export async function getSubtitles(args: SubtitlesArgs): Promise<{
       if (entry.timing === "unsynced" && !config.includeUnsynced) continue;
 
       subtitles.push({
-        id: `${entry.timing}-${subtitle.fileId}`,
+        id: `${entry.timing}-${subtitle.provider ? "subdl-" : ""}${subtitle.fileId}`,
         url: entry.url,
         lang: label(language, entry.timing, config.verboseLabels),
       });
       offered++;
+    }
+
+    // Only a missing native-language entry enables the optional paid fallback.
+    if (offered === 0 && config.translation) {
+      for (const sourceLanguage of config.translation.sourceLanguages) {
+        if (sourceLanguage === language) continue;
+        const sources = all.filter((candidate) => candidate.language === sourceLanguage);
+        const ranked = [
+          ...rankCandidates(sources.filter((candidate) => candidate.moviehashMatch)),
+          ...rankCandidates(sources.filter((candidate) => !candidate.moviehashMatch)),
+        ];
+        for (const candidate of ranked) {
+          const file: FileRef = { fileId: candidate.fileId, lang: candidate.language, provider: candidate.provider };
+          const entry = buildEntry(candidate.moviehashMatch, anchor, embedded, file, hint, { base, configToken, slug, ext });
+          if (entry.timing === "unsynced" && !config.includeUnsynced) continue;
+          subtitles.push({
+            id: `ai-${language}-${candidate.provider ?? "os"}-${candidate.fileId}`,
+            url: translationUrl(base, configToken, entry.url, language, entry.timing, slug, ext),
+            // Provenance remains visible even when normal subtitles use ISO labels.
+            lang: `${languageName(language)} - AI translation from ${languageName(sourceLanguage)} (${TIMING_NOTE[entry.timing]})`,
+          });
+          offered++;
+          break;
+        }
+        if (offered) break;
+      }
     }
   }
 
@@ -199,7 +220,7 @@ function buildEntry(
   isExact: boolean,
   anchor: Anchor | null,
   embedded: boolean,
-  ref: { fileId: number; lang: string },
+  ref: FileRef,
   hint: VideoHint,
   url: { base: string; configToken: string; slug: string; ext: string },
 ): { timing: Timing; url: string } {
@@ -212,7 +233,7 @@ function buildEntry(
 
   // Aligning a file to itself would be pointless, and would also spend the
   // anchor's download quota a second time.
-  const usableAnchor = anchor && anchor.subtitle.fileId !== ref.fileId ? anchor : null;
+  const usableAnchor = anchor && (ref.provider === "subdl" || anchor.subtitle.fileId !== ref.fileId) ? anchor : null;
 
   if (usableAnchor?.tier === "hash") {
     const anchorRef = {

@@ -1,10 +1,15 @@
+import { translationRoutes } from "./translation/routes";
 import express from "express";
+import { credentialMode, validateProfileStore } from "./credentials/store";
+import { credentialRoutes } from "./credentials/routes";
 import { getRouter } from "stremio-addon-sdk";
 import { addonInterface } from "./addon";
 import { landingPage } from "./landing";
 import { runWithRequest } from "./context";
 import { log, logToFile } from "./log";
 import { subtitleRoutes } from "./routes/subtitles";
+
+if (credentialMode() === "user") validateProfileStore();
 
 const port = Number(process.env.PORT ?? 7000);
 const app = express();
@@ -14,8 +19,12 @@ const logFile = process.env.LOG_FILE ?? "subtitle-sync.log";
 if (logFile !== "off") logToFile(logFile);
 
 // Behind a proxy, trust the forwarded headers so req.protocol is the real one.
-app.set("trust proxy", true);
+app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback");
 app.disable("x-powered-by");
+
+// Resolve the public origin before the private setup/profile routes.
+app.use((req, _res, next) => runWithRequest(req, next));
+app.use(credentialRoutes());
 
 // Stremio clients are not same-origin with the addon. A client on a public
 // https site calling this addon on 127.0.0.1 also sends a private network
@@ -51,12 +60,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Carry the request origin into the subtitle handler, which the SDK calls
-// without any reference to the request.
-app.use((req, _res, next) => {
-  runWithRequest(req, next);
-});
-
 app.get("/health", (_req, res) => {
   res.json({ ok: true, version: addonInterface.manifest.version });
 });
@@ -75,6 +78,7 @@ app.get("/configure", servePage);
 app.get("/:config/configure", servePage);
 
 // Our own file routes come first; the SDK router owns everything else.
+app.use(translationRoutes());
 app.use(subtitleRoutes());
 app.use(getRouter(addonInterface));
 
@@ -83,7 +87,5 @@ app.listen(port, () => {
   log.info(`Subtitle Sync listening on port ${port}`);
   log.info(`Manifest:  ${base}/manifest.json`);
   log.info(`Configure: ${base}/configure`);
-  if (!process.env.OS_API_KEY) {
-    log.warn("OS_API_KEY is not set. Users must supply their own key via /configure.");
-  }
+  log.info(`Credential policy: ${credentialMode()}`);
 });

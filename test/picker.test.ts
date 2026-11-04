@@ -121,12 +121,12 @@ test("only user-supplied settings go into the URL token", () => {
 
   const token = encodeConfig({ osApiKey: "abc", languages: "pl,en" });
   assert.notEqual(token, "_");
-  assert.deepEqual(decodeConfig(token), { osApiKey: "abc", languages: "pl,en" });
+  assert.deepEqual(decodeConfig(token), { languages: "pl,en" });
   // A damaged token falls back to the environment rather than throwing.
   assert.equal(decodeConfig("!!!not-base64!!!"), undefined);
 });
 
-test("user settings override the environment, which fills the rest", () => {
+test("user settings override defaults, but server policy keeps administrator keys", () => {
   process.env.LANGUAGES = "de";
   process.env.OS_API_KEY = "from-env";
 
@@ -136,7 +136,7 @@ test("user settings override the environment, which fills the rest", () => {
 
   const fromUser = resolveConfig({ languages: "pl, en", osApiKey: "from-user" });
   assert.deepEqual(fromUser.languages, ["pl", "en"]);
-  assert.equal(fromUser.osApiKey, "from-user");
+  assert.equal(fromUser.osApiKey, "from-env");
 
   assert.equal(resolveConfig({ maxPerLang: "999" }).maxPerLang, 20);
   assert.equal(resolveConfig({ format: "vtt" }).format, "vtt");
