@@ -103,7 +103,8 @@ export async function probeMedia(url: string, timeoutMs = 45_000): Promise<Media
   try {
     const stdout = await ffprobe(
       [
-        "-v", "error",
+        // Older FFmpeg reports the numeric HTTP status only at warning level.
+        "-v", "warning",
         "-select_streams", "s",
         "-show_entries",
         "format=duration:stream=codec_name,codec_type:stream_tags=language:stream_disposition=forced",
@@ -207,7 +208,7 @@ export async function readSubtitleTimings(
       try {
         return await ffprobePartial(
           [
-            "-v", "error",
+            "-v", "warning",
             "-select_streams", `s:${track}`,
             "-show_entries", "packet=pts_time,duration_time",
             "-of", "csv=p=0",

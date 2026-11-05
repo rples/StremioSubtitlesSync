@@ -14,7 +14,10 @@
     "test": "tsx --test test/*.test.ts",
     "check:torbox": "tsx --env-file-if-exists=.env scripts/torbox-check.ts",
     "check:tracks": "tsx --env-file-if-exists=.env scripts/probe-tracks.ts",
-    "check:extract": "tsx --env-file-if-exists=.env scripts/extract-check.ts"
+    "check:extract": "tsx --env-file-if-exists=.env scripts/extract-check.ts",
+    "check": "npm run typecheck && npm run build && npm test && npm run smoke",
+    "audit": "npm audit --audit-level=low",
+    "smoke": "node scripts/smoke.cjs"
   },
   "keywords": [],
   "author": "",
@@ -32,6 +35,20 @@
     "typescript": "^7.0.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "overrides": {
+    "express": {
+      ".": "$express",
+      "body-parser": "1.20.9",
+      "proxy-addr": "2.0.8",
+      "qs": "6.17.1"
+    },
+    "router@1": {
+      "path-to-regexp": "0.1.13"
+    },
+    "external-editor@3": {
+      "tmp": "0.2.7"
+    }
   }
 }

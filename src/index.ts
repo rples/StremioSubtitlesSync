@@ -14,7 +14,7 @@ const logFile = process.env.LOG_FILE ?? "subtitle-sync.log";
 if (logFile !== "off") logToFile(logFile);
 
 // Behind a proxy, trust the forwarded headers so req.protocol is the real one.
-app.set("trust proxy", true);
+app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback");
 app.disable("x-powered-by");
 
 // Stremio clients are not same-origin with the addon. A client on a public

@@ -17,6 +17,7 @@ already in sync. No more pressing the subtitle delay button every few minutes.
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
+- [Docker and NAS hosting](#docker-and-nas-hosting)
 - [Installing the addon in Stremio](#installing-the-addon-in-stremio)
 - [Configuration](#configuration)
 - [Running as a Windows service](#running-as-a-windows-service)
@@ -113,6 +114,14 @@ npm run dev
 Check that it runs: <http://127.0.0.1:7000/health> should answer
 `{"ok":true,...}`.
 
+## Docker and NAS hosting
+
+A non-root image with FFmpeg/ffprobe, health checks and a Compose setup is
+available. It uses a read-only root filesystem and a persistent `/data` volume;
+the default host port is loopback only. See [Docker instructions](docs/DOCKER.md)
+for building, TV/reverse-proxy access, storage, limits and automated AMD64/ARM64
+container checks. Optional credential/library features require their own PRs.
+
 ## Installing the addon in Stremio
 
 ### On the PC that runs the addon
@@ -198,6 +207,7 @@ Changes to `.env` need a restart of the addon.
 | `EMBEDDED_CONCURRENCY` | `2` | Reference B fallback: stretches read at the same time. Set `1` if TorBox answers "429 Too Many Requests". |
 | `PORT` | `7000` | Port to listen on. |
 | `BASE_URL` | | Public address of the addon, for use behind a proxy. Leave unset on a home network. |
+| `TRUST_PROXY` | `loopback` | Trusted reverse-proxy addresses/CIDRs, comma separated. Forwarded headers from other peers are ignored. Set the actual proxy address/subnet for container deployments. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `LOG_FILE` | `subtitle-sync.log` | Every log line also goes to this file. `off` writes no file. |
 | `EMBEDDED_DUMP_DIR` | | Diagnostics: save references and failed subtitles as JSON in this folder. |
@@ -419,7 +429,14 @@ npm test             # unit and end-to-end tests (end-to-end ones need ffmpeg)
 npm run typecheck    # type check only
 npm run build        # compile to dist/
 npm start            # run the compiled server
+npm run check        # typecheck, build, tests and compiled-server smoke test
+npm run audit        # fail on any known dependency advisory, including dev tools
 ```
+
+CI runs on Node.js 22, 24 and 26 with FFmpeg and ffprobe installed. Set
+`REQUIRE_MEDIA_TESTS=true` locally to fail rather than skip media tests when
+these tools are missing. See [Security and automated checks](docs/SECURITY-CI.md)
+for dependency overrides, proxy migration and the scope of these checks.
 
 ### Project layout
 

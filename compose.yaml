@@ -1,0 +1,33 @@
+services:
+  subtitle-sync:
+    build: .
+    image: subtitle-sync:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: '7000'
+      LOG_FILE: 'off'
+      FFPROBE_PATH: ffprobe
+    ports:
+      - '127.0.0.1:${SUBTITLE_SYNC_PORT:-7000}:7000'
+    volumes:
+      - subtitle-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  subtitle-data:

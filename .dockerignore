@@ -1,0 +1,13 @@
+# Allow only build inputs into the context. Credentials, volumes, Git history,
+# tests, local dependencies and diagnostics stay outside it.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!tsconfig.json
+!LICENSE
+!src/
+!src/**
+!docker/
+!docker/healthcheck.cjs

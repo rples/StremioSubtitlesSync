@@ -30,6 +30,9 @@ function hasFfmpeg(): boolean {
     execFileSync("ffprobe", ["-version"], { stdio: "ignore", windowsHide: true });
     return true;
   } catch {
+    if (process.env.REQUIRE_MEDIA_TESTS === "true") {
+      throw new Error("FFmpeg and ffprobe are required when REQUIRE_MEDIA_TESTS=true");
+    }
     return false;
   }
 }
