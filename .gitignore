@@ -19,3 +19,6 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Encrypted personal profiles and encryption-key files
+data/

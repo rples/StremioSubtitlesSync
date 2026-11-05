@@ -1,3 +1,7 @@
+import { translationSettings, TranslationError, type TranslationSettings } from "./translation/config";
+import { log } from "./log";
+import { CREDENTIAL_FIELDS, credentialMode, readProfile, type Profile } from "./credentials/store";
+
 /**
  * Two ways to configure the addon:
  *
@@ -5,10 +9,12 @@
  *  - Per-install user data, which Stremio carries in the addon URL path and
  *    hands back on every request.
  *
- * User data wins where present; the environment fills the rest.
+ * The administrator selects server keys or mandatory personal profiles.
+ * Non-secret user settings override the environment defaults.
  */
 
 export interface RawUserConfig {
+  profile?: string;
   osApiKey?: string;
   osUsername?: string;
   osPassword?: string;
@@ -22,6 +28,10 @@ export interface RawUserConfig {
 }
 
 export interface ResolvedConfig {
+  shareLibrary?: boolean;
+  translation?: TranslationSettings;
+  /** Resolved from the server environment or an encrypted personal profile. */
+  subdlApiKey?: string;
   osApiKey: string;
   osUsername: string | undefined;
   osPassword: string | undefined;
@@ -89,20 +99,40 @@ function withoutBlanks(raw: RawUserConfig | undefined): RawUserConfig {
 
 export function resolveConfig(raw: RawUserConfig | undefined): ResolvedConfig {
   const user = withoutBlanks(raw);
-  const maxPerLang = Number(user.maxPerLang ?? process.env.MAX_PER_LANG ?? 5);
-  const format = (user.format ?? process.env.FORMAT ?? "srt").toLowerCase();
+  const mode = credentialMode();
+  const stored = mode === "user" && user.profile ? readProfile(user.profile) : undefined;
+  const settings = { ...stored, ...user };
+  const keys: Profile = mode === "server" ? {
+    osApiKey: process.env.OS_API_KEY, osUsername: process.env.OS_USERNAME,
+    osPassword: process.env.OS_PASSWORD, subdlApiKey: process.env.SUBDL_API_KEY,
+    torboxApiKey: process.env.TORBOX_API_KEY,
+    aiEnabled: process.env.AI_ENABLED, aiBaseUrl: process.env.AI_BASE_URL,
+    aiApiKey: process.env.AI_API_KEY, aiModel: process.env.AI_MODEL,
+    aiHeaders: process.env.AI_HEADERS, aiTokenParameter: process.env.AI_TOKEN_PARAMETER,
+    aiJsonMode: process.env.AI_JSON_MODE, aiSourceLanguages: process.env.AI_SOURCE_LANGUAGES,
+  } : stored ?? {};
+  let translation: TranslationSettings | undefined;
+  try { translation = translationSettings(keys, mode === "user"); }
+  catch (error) {
+    log.warn(error instanceof TranslationError ? error.message : "Invalid AI configuration");
+  }
+  const maxPerLang = Number(settings.maxPerLang ?? process.env.MAX_PER_LANG ?? 5);
+  const format = (settings.format ?? process.env.FORMAT ?? "srt").toLowerCase();
 
   return {
-    osApiKey: (user.osApiKey ?? process.env.OS_API_KEY ?? "").trim(),
-    osUsername: (user.osUsername ?? process.env.OS_USERNAME ?? "").trim() || undefined,
-    osPassword: (user.osPassword ?? process.env.OS_PASSWORD ?? "") || undefined,
-    languages: langList(user.languages, envList("LANGUAGES", ["en"])),
-    anchorLanguages: langList(user.anchorLanguages, envList("ANCHOR_LANGUAGES", ["en"])),
+    shareLibrary: process.env.TRANSLATION_LIBRARY_SHARED === "true" && (mode === "server" || isOn(stored?.librarySharingConsent)),
+    translation,
+    subdlApiKey: keys.subdlApiKey?.trim() || undefined,
+    osApiKey: (keys.osApiKey ?? "").trim(),
+    osUsername: (keys.osUsername ?? "").trim() || undefined,
+    osPassword: (keys.osPassword ?? "") || undefined,
+    languages: langList(settings.languages, envList("LANGUAGES", ["en"])),
+    anchorLanguages: langList(settings.anchorLanguages, envList("ANCHOR_LANGUAGES", ["en"])),
     maxPerLang: Number.isFinite(maxPerLang) ? Math.min(Math.max(maxPerLang, 1), 20) : 5,
     format: format === "vtt" ? "vtt" : "srt",
-    verboseLabels: (user.labels ?? process.env.LABELS ?? "iso") === "verbose",
-    includeUnsynced: isOn(user.unsynced ?? process.env.INCLUDE_UNSYNCED),
-    torboxApiKey: (user.torboxApiKey ?? process.env.TORBOX_API_KEY ?? "").trim() || undefined,
+    verboseLabels: (settings.labels ?? process.env.LABELS ?? "iso") === "verbose",
+    includeUnsynced: isOn(settings.unsynced ?? process.env.INCLUDE_UNSYNCED),
+    torboxApiKey: (keys.torboxApiKey ?? "").trim() || undefined,
     embeddedWindows: bounded(process.env.EMBEDDED_WINDOWS, 6, 1, 20),
     embeddedWindowSeconds: bounded(process.env.EMBEDDED_WINDOW_SECONDS, 20, 5, 300),
   };
@@ -121,13 +151,12 @@ function isOn(value: string | undefined): boolean {
 }
 
 /**
- * Packs the user's own settings back into a URL segment.
- *
- * Only what the user actually supplied goes in, so a self-hosted instance that
- * gets everything from the environment never puts its API key in a URL.
+ * Packs non-secret settings and the revocable profile reference into a URL.
+ * Legacy raw credential fields are always removed.
  */
 export function encodeConfig(raw: RawUserConfig | undefined): string {
-  const entries = Object.entries(raw ?? {}).filter(([, v]) => v !== undefined && v !== "");
+  const entries = Object.entries(raw ?? {}).filter(([key, v]) =>
+    !CREDENTIAL_FIELDS.includes(key as typeof CREDENTIAL_FIELDS[number]) && v !== undefined && v !== "");
   if (entries.length === 0) return EMPTY_CONFIG_TOKEN;
   const json = JSON.stringify(Object.fromEntries(entries));
   return Buffer.from(json, "utf8").toString("base64url");

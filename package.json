@@ -14,7 +14,8 @@
     "test": "tsx --test test/*.test.ts",
     "check:torbox": "tsx --env-file-if-exists=.env scripts/torbox-check.ts",
     "check:tracks": "tsx --env-file-if-exists=.env scripts/probe-tracks.ts",
-    "check:extract": "tsx --env-file-if-exists=.env scripts/extract-check.ts"
+    "check:extract": "tsx --env-file-if-exists=.env scripts/extract-check.ts",
+    "library": "tsx --env-file-if-exists=.env src/library/cli.ts"
   },
   "keywords": [],
   "author": "",

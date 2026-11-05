@@ -1,3 +1,5 @@
+import { validSubdlFileId } from "./subdl/reference";
+
 /**
  * Subtitle URLs are self-describing.
  *
@@ -9,13 +11,14 @@
  */
 
 export interface FileRef {
-  fileId: number;
+  fileId: number | string;
+  provider?: "subdl";
   /** Needed only to pick a code page if the file turns out not to be UTF-8. */
   lang: string;
 }
 
 export function encodeRef(ref: FileRef): string {
-  return `${ref.fileId}.${ref.lang}`;
+  return `${ref.provider === "subdl" ? "subdl~" : ""}${ref.fileId}.${ref.lang}`;
 }
 
 export function decodeRef(token: string | undefined): FileRef | null {
@@ -23,6 +26,11 @@ export function decodeRef(token: string | undefined): FileRef | null {
   const dot = token.indexOf(".");
   const idPart = dot === -1 ? token : token.slice(0, dot);
   const lang = dot === -1 ? "en" : token.slice(dot + 1);
+  if (idPart.startsWith("subdl~")) {
+    const fileId = idPart.slice(6);
+    if (!validSubdlFileId(fileId)) return null;
+    return { provider: "subdl", fileId, lang: lang.toLowerCase().replace(/[^a-z-]/g, "") || "en" };
+  }
   const fileId = Number(idPart);
   if (!Number.isInteger(fileId) || fileId <= 0) return null;
   return { fileId, lang: lang.toLowerCase().replace(/[^a-z-]/g, "") || "en" };
@@ -39,7 +47,7 @@ export function slugify(name: string): string {
   return cleaned || "subtitle";
 }
 
-/** Serve one OpenSubtitles file as-is, only re-encoded to UTF-8. */
+/** Serve one provider file as-is, only re-encoded to UTF-8. */
 export function directUrl(
   base: string,
   configToken: string,
