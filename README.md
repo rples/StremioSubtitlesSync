@@ -198,6 +198,7 @@ Changes to `.env` need a restart of the addon.
 | `EMBEDDED_CONCURRENCY` | `2` | Reference B fallback: stretches read at the same time. Set `1` if TorBox answers "429 Too Many Requests". |
 | `PORT` | `7000` | Port to listen on. |
 | `BASE_URL` | | Public address of the addon, for use behind a proxy. Leave unset on a home network. |
+| `TRUST_PROXY` | `loopback` | Trusted reverse-proxy addresses/CIDRs, comma separated. Forwarded headers from other peers are ignored. Set the actual proxy address/subnet for container deployments. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `LOG_FILE` | `subtitle-sync.log` | Every log line also goes to this file. `off` writes no file. |
 | `EMBEDDED_DUMP_DIR` | | Diagnostics: save references and failed subtitles as JSON in this folder. |
@@ -419,7 +420,14 @@ npm test             # unit and end-to-end tests (end-to-end ones need ffmpeg)
 npm run typecheck    # type check only
 npm run build        # compile to dist/
 npm start            # run the compiled server
+npm run check        # typecheck, build, tests and compiled-server smoke test
+npm run audit        # fail on any known dependency advisory, including dev tools
 ```
+
+CI runs on Node.js 22, 24 and 26 with FFmpeg and ffprobe installed. Set
+`REQUIRE_MEDIA_TESTS=true` locally to fail rather than skip media tests when
+these tools are missing. See [Security and automated checks](docs/SECURITY-CI.md)
+for dependency overrides, proxy migration and the scope of these checks.
 
 ### Project layout
 
